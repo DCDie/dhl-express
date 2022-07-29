@@ -1,7 +1,44 @@
-import base64
 from typing import Dict
+from urllib.parse import urljoin
 
-import requests
+from requests import Session, Response
+from requests.auth import AuthBase, HTTPBasicAuth
+
+
+__all__ = (
+    'DHLService',
+    'DHLServiceSession'
+)
+
+
+class DHLServiceSession(Session):
+    def __init__(self, base_url: str, auth: AuthBase):
+        super(DHLServiceSession, self).__init__()
+
+        self.base_url = base_url
+        self.auth = auth
+
+    def request(self, method: str, url: str, **kwargs) -> Response:
+        kwargs.setdefault('headers', dict())
+        kwargs['headers'].setdefault('Accept', 'Application/JSON')
+        kwargs['headers'].setdefault('Content-Type', 'Application/JSON')
+        return super(DHLServiceSession, self).request(method, urljoin(self.base_url, url), **kwargs)
+
+    @classmethod
+    def from_credentials(cls, api_key: str, api_secret: str, base_url: str = None):
+        return cls(base_url=base_url, auth=HTTPBasicAuth(username=api_key, password=api_secret))
+
+    def shipment_create(self, json: Dict, **kwargs) -> Response:
+        return self.post('shipments', json=json, **kwargs)
+
+    def shipment_tracking(self, shipment_id: str, **kwargs) -> Response:
+        return self.get(f'shipments/{shipment_id}/tracking', **kwargs)
+
+    def shipment_proof_of_delivery(self, shipment_id: str, **kwargs) -> Response:
+        return self.get(f'shipments/{shipment_id}/proof-of-delivery', **kwargs)
+
+    def address_validate(self, params: Dict, **kwargs) -> Response:
+        return self.get('address-validate', params=params, **kwargs)
 
 
 class DHLService:
@@ -9,32 +46,17 @@ class DHLService:
     Class to interact with DHL Express API
     """
 
-    dhl_url = 'https://express.api.dhl.com/mydhlapi'
-    dhl_test_url = 'https://express.api.dhl.com/mydhlapi/test'
+    dhl_base_url = 'https://express.api.dhl.com/mydhlapi/'
+    dhl_test_url = 'https://express.api.dhl.com/mydhlapi/test/'
 
     def __init__(self, api_key: str, api_secret: str, test_mode: bool = False):
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.test_mode = test_mode
-        self.endpoint = self.dhl_test_url if test_mode else self.dhl_url
-        self.token = self.create_token()
+        self.session = DHLServiceSession.from_credentials(
+            api_key=api_key,
+            api_secret=api_secret,
+            base_url=self.dhl_test_url if test_mode else self.dhl_base_url
+        )
 
-        self.headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': f'Basic {self.token}'
-        }
-
-    def create_token(self):
-        """
-        Create a token for the API
-        """
-        token = '{username}:{password}'.format(username=self.api_key, password=self.api_secret)
-        encoded_token = base64.b64encode(token.encode('utf-8'))
-        encoded_token = str(encoded_token, 'utf-8')
-        return encoded_token
-
-    def validate_address(self, address: Dict) -> Dict:
+    def validate_address(self, params: Dict) -> Dict:
         """
         Validate an address
 
@@ -47,12 +69,11 @@ class DHLService:
                 'countryCode': 'US',
             }
         """
-        url = f'{self.endpoint}/address-validate'
-        response = requests.get(url, headers=self.headers, params=address)
+        response = self.session.address_validate(params=params)
         response.raise_for_status()
         return response.json()
 
-    def create_shipment(self, shipment_data: Dict) -> Dict:
+    def create_shipment(self, json: Dict) -> Dict:
         """
         Create a shipment
 
@@ -614,8 +635,7 @@ class DHLService:
             }
         }
         """
-        url = f'{self.endpoint}/shipments'
-        response = requests.post(url, headers=self.headers, json=shipment_data)
+        response = self.session.shipment_create(json=json)
         response.raise_for_status()
         return response.json()
 
@@ -623,8 +643,7 @@ class DHLService:
         """
         Check the status of a shipment
         """
-        url = f'{self.endpoint}/shipments/{shipment_id}/tracking'
-        response = requests.get(url, headers=self.headers)
+        response = self.session.shipment_tracking(shipment_id=shipment_id)
         response.raise_for_status()
         return response.json()
 
@@ -632,7 +651,6 @@ class DHLService:
         """
         Get the proofs of a shipment
         """
-        url = f'{self.endpoint}/shipments/{shipment_id}/proof-of-delivery'
-        response = requests.get(url, headers=self.headers)
+        response = self.session.shipment_proof_of_delivery(shipment_id=shipment_id)
         response.raise_for_status()
         return response.json()
