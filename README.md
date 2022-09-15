@@ -1,6 +1,6 @@
 ## Project Description
 
-With *dhl-express*, you can use DHL API to create and manage your shipping labels.
+With *dhl-express*, you can use DHL Express API to create and manage your shipping labels.
 
 ## Requirements
 
